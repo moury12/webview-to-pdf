@@ -27,24 +27,23 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const MyHomePage(),
+      home:  MyHomePage(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key});
 
+
+class MyHomePage extends StatefulWidget {
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  _MyHomePageState createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
   late WebViewController controller;
-
-
   final ScreenshotController screenshotController = ScreenshotController();
   List<Uint8List> images = [];
+
   @override
   void initState() {
     super.initState();
@@ -52,75 +51,84 @@ class _MyHomePageState extends State<MyHomePage> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..loadRequest(Uri.parse('https://flutter.dev'));
   }
-Future<void> captureAndSaveScreenshots() async{
-    try{
+
+  Future<void> captureAndSaveScreenshots() async {
+    try {
       await captureScrollableContent();
       await convertImageToPdf(images);
-    }catch(e){
-
+    } catch (e) {
+      print('Error: $e');
     }
-}
+  }
 
   Future<void> convertImageToPdf(List<Uint8List> images) async {
     final pdf = pw.Document();
-    for(var image in images){
+    for (var image in images) {
       final imageProvider = pw.MemoryImage(image);
-
-      pdf.addPage(pw.Page(build: (pw.Context context) {
-        return pw.Center(child: pw.Image(imageProvider));
-      }));
+      pdf.addPage(
+        pw.Page(
+          build: (pw.Context context) => pw.Center(child: pw.Image(imageProvider)),
+        ),
+      );
     }
 
     Directory dir = Directory('/storage/emulated/0/Download');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
     final file = File('${dir.path}/webview_screenshot.pdf');
     await file.writeAsBytes(await pdf.save());
     print('PDF saved to ${file.path}');
   }
+
   final GlobalKey _globalKey = GlobalKey();
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Flutter Simple Example'),
       ),
-      body: RepaintBoundary(key: _globalKey,
-          child: SizedBox(  height: 2250, // Important Adjust the height as needed
-              width: MediaQuery.of(context).size.width,
-
-              child:  LayoutBuilder(
-                  builder: (BuildContext context, BoxConstraints constraints) {
-
-                    return WebViewWidget(controller: controller);
-                }
-              ))),
+      body: RepaintBoundary(
+        key: _globalKey,
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height, // Adjust height as needed
+          width: MediaQuery.of(context).size.width,
+          child: WebViewWidget(controller: controller),
+        ),
+      ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () async{
-          // Uint8List? imageBytes = await screenshotController.capture();
-          captureAndSaveScreenshots();
+        onPressed: () async {
           images.clear();
+          await captureAndSaveScreenshots();
         },
         tooltip: 'Download',
         child: const Icon(Icons.save),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      ),
     );
   }
 
- Future<void> captureScrollableContent() async{
-    double scrollPosition =0;
-    bool reachend = false;
-    while(!reachend){
-      String? base64String =
-      await ScrollScreenshot.captureAndSaveScreenshot(_globalKey);
-      Uint8List imageBytes = Uint8List.fromList(base64Decode(base64String!));
-      images.add(imageBytes);
-      double maxScrollExtent =MediaQuery.of(context).size.height;
-      scrollPosition +=maxScrollExtent;
-      reachend=(scrollPosition>=maxScrollExtent);
-      if(!reachend){
-        await Future.delayed(Duration(milliseconds: 500));
+  Future<void> captureScrollableContent() async {
+    double totalHeight = double.parse(
+      (await controller.runJavaScriptReturningResult(
+        'document.body.scrollHeight.toString();',
+      )) as String,
+    );
+
+    double viewportHeight = MediaQuery.of(context).size.height;
+    double scrollPosition = 0;
+
+    while (scrollPosition < totalHeight) {
+      Uint8List? imageBytes = await screenshotController.capture();
+      if (imageBytes != null) {
+        images.add(imageBytes);
+      }
+
+      scrollPosition += viewportHeight;
+      if (scrollPosition < totalHeight) {
+        await controller.runJavaScript('window.scrollTo(0, $scrollPosition);');
+        await Future.delayed(Duration(milliseconds: 500)); // Wait for scroll
       }
     }
- }
+  }}
 
-
-}

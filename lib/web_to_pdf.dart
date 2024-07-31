@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/adapters.dart';
 import 'package:open_file_plus/open_file_plus.dart';
@@ -11,29 +12,13 @@ class WebToPdf extends StatefulWidget {
   @override
   _WebToPdfState createState() => _WebToPdfState();
 }
-
+// 'http://w05.yeapps.com/ipi_combined/api_da/report_home?cid=ibnsina&user_id=zdm200&user_pass=123'
 class _WebToPdfState extends State<WebToPdf> {
   WebViewController _controller = WebViewController()
     ..setJavaScriptMode(JavaScriptMode.unrestricted)
     ..setBackgroundColor(const Color(0x00000000))
-    ..setNavigationDelegate(
-      NavigationDelegate(
-        onProgress: (int progress) {
-          // Update loading bar.
-        },
-        onPageStarted: (String url) {},
-        onPageFinished: (String url) {},
-        onHttpError: (HttpResponseError error) {},
-        onWebResourceError: (WebResourceError error) {},
-        onNavigationRequest: (NavigationRequest request) {
-          if (request.url.startsWith('https://www.youtube.com/')) {
-            return NavigationDecision.prevent;
-          }
-          return NavigationDecision.navigate;
-        },
-      ),
-    )
-    ..loadRequest(Uri.parse('https://flutter.dev'));
+    ..loadRequest(Uri.parse('https://flutter.dev'
+        ));
   final ScreenshotController screenshotController = ScreenshotController();
   bool hasBottomReached = false;
   bool buttonDisable = false;
@@ -49,7 +34,20 @@ class _WebToPdfState extends State<WebToPdf> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('WebView Screenshot'),
+        title: Row(
+          children: [
+            IconButton(
+                onPressed: () {
+                  _controller.goBack();
+                },
+                icon: Icon(CupertinoIcons.back)),
+            IconButton(
+                onPressed: () {
+                  _controller.goForward();
+                },
+                icon: Icon(CupertinoIcons.forward))
+          ],
+        ),
         actions: [
           IconButton(
               onPressed: () {
@@ -156,12 +154,15 @@ class _WebToPdfState extends State<WebToPdf> {
     buttonDisable = true;
     hasBottomReached = false; // Reset the flag
     setState(() {});
-
-    while (!hasBottomReached) {
-      // Scroll down and capture the screenshot
-      await _scrollToBottom();
-    }
-
+bool isScrollAble = await checkIfScrollable();
+if(!isScrollAble){
+  await _captureScreenshot();
+}else {
+  while (!hasBottomReached) {
+    // Scroll down and capture the screenshot
+    await _scrollToBottom();
+  }
+}
     // After capturing all screenshots, enable the button again
     setState(() {
       buttonDisable = false;
@@ -175,16 +176,30 @@ class _WebToPdfState extends State<WebToPdf> {
 
     convertImageToPdf();
   }
+Future<bool> checkIfScrollable() async{
+    String jsCheckScrollable ="""(function() {
+        return document.body.scrollHeight > window.innerHeight;
+      })();""";
+    Object result = await _controller.runJavaScriptReturningResult(jsCheckScrollable);
+    return result ==true;
+}
 
+  Future<void> _captureScreenshot() async {
+    Uint8List? imageBytes = await screenshotController.capture();
+    if (imageBytes != null) {
+      final box = await openImagesBox();
+      box.add(imageBytes);
+    }
+  }
   Future<void> _scrollToBottom() async {
     int durationInMs = 500;
-   /* String jsScrollDown = """(function() {
+    /* String jsScrollDown = """(function() {
       var viewportHeight = window.innerHeight;
       var scrollPosition = window.scrollY;
       window.scrollTo(0, scrollPosition + viewportHeight);
       return (window.innerHeight + window.scrollY) >= document.body.scrollHeight;
     })();""";*/
-    String jsScrollDown =  """
+    String jsScrollDown = """
     (function() {
       var viewportHeight = window.innerHeight;
       var scrollPosition = window.scrollY;
@@ -228,5 +243,4 @@ class _WebToPdfState extends State<WebToPdf> {
   Future<Box<Uint8List>> openImagesBox() async {
     return await Hive.openBox<Uint8List>('imagesBox');
   }
-
 }

@@ -6,7 +6,6 @@ import 'package:open_file_plus/open_file_plus.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_to_pdf/main.dart';
 
 class WebToPdf extends StatefulWidget {
   @override
@@ -14,23 +13,31 @@ class WebToPdf extends StatefulWidget {
 }
 
 class _WebToPdfState extends State<WebToPdf> {
-  late WebViewController _controller;
+  WebViewController _controller = WebViewController()
+    ..setJavaScriptMode(JavaScriptMode.unrestricted)
+    ..setBackgroundColor(const Color(0x00000000))
+    ..setNavigationDelegate(
+      NavigationDelegate(
+        onProgress: (int progress) {
+          // Update loading bar.
+        },
+        onPageStarted: (String url) {},
+        onPageFinished: (String url) {},
+        onHttpError: (HttpResponseError error) {},
+        onWebResourceError: (WebResourceError error) {},
+        onNavigationRequest: (NavigationRequest request) {
+          if (request.url.startsWith('https://www.youtube.com/')) {
+            return NavigationDecision.prevent;
+          }
+          return NavigationDecision.navigate;
+        },
+      ),
+    )
+    ..loadRequest(Uri.parse('https://flutter.dev'));
   final ScreenshotController screenshotController = ScreenshotController();
   bool hasBottomReached = false;
   bool buttonDisable = false;
   bool loading = false;
-  @override
-  void initState() {
-    super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..loadRequest(Uri.parse('https://flutter.dev'))
-      ..setNavigationDelegate(NavigationDelegate(
-        onPageFinished: (String url) {
-          _checkIfScrolledToBottom();
-        },
-      ));
-  }
 
   void scrollToTop() {
     buttonDisable = false;
@@ -45,26 +52,22 @@ class _WebToPdfState extends State<WebToPdf> {
         title: const Text('WebView Screenshot'),
         actions: [
           IconButton(
-              onPressed: scrollToTop,
-              icon:  Icon(Icons.arrow_circle_up_outlined,color: loading ? Colors.grey : Colors.black,)),
+              onPressed: () {
+                _controller.reload();
+              },
+              icon: Icon(Icons.restart_alt)),
           IconButton(
-              onPressed: buttonDisable ||loading? () {} : _scrollToBottom,
+              onPressed: scrollToTop,
+              icon: Icon(
+                Icons.arrow_circle_up_outlined,
+                color: loading ? Colors.grey : Colors.black,
+              )),
+          IconButton(
+              onPressed: buttonDisable || loading ? () {} : _scrollAndCapture,
               icon: Icon(
                 Icons.arrow_circle_down_outlined,
-                color: buttonDisable||loading ? Colors.grey : Colors.black,
+                color: buttonDisable || loading ? Colors.grey : Colors.black,
               )),
-          FutureBuilder<bool>(
-              future: isImagesBoxEmpty(),
-              builder: (context, snapshot) {
-                return IconButton(
-                    onPressed: () {
-                      convertImageToPdf();
-                    },
-                    icon: Icon(
-                      Icons.file_download,
-                      color: snapshot.data == true ||loading? Colors.grey : Colors.black,
-                    ));
-              }),
         ],
       ),
       body: Stack(
@@ -105,14 +108,14 @@ class _WebToPdfState extends State<WebToPdf> {
   }
 
   Future<void> convertImageToPdf() async {
+    setState(() {
+      loading = true;
+    });
     final pdf = pw.Document();
     var box = await openImagesBox();
     final images = box.values.toList();
     if (box.isNotEmpty) {
       for (var image in images) {
-        setState(() {
-          loading = true;
-        });
         final imageProvider = pw.MemoryImage(image);
         pdf.addPage(
           pw.Page(
@@ -135,10 +138,12 @@ class _WebToPdfState extends State<WebToPdf> {
           content: Text('PDF saved to ${file.path}'),
           action: SnackBarAction(
             label: 'Open pdf',
-            onPressed: () {OpenFile.open(file.path);},
+            onPressed: () {
+              OpenFile.open(file.path);
+            },
           )));
 
-     await box.clear();
+      await box.clear();
       scrollToTop();
       setState(() {});
     } else {
@@ -147,48 +152,81 @@ class _WebToPdfState extends State<WebToPdf> {
     }
   }
 
-  void _checkIfScrolledToBottom() async {
-    Object result = await _controller.runJavaScriptReturningResult("""
-        (function() {
-          return (window.innerHeight + window.scrollY) >= document.body.scrollHeight;
-        })();
-        """);
-    // The result will be "true" or "false", convert to boolean
+  void _scrollAndCapture() async {
+    buttonDisable = true;
+    hasBottomReached = false; // Reset the flag
+    setState(() {});
+
+    while (!hasBottomReached) {
+      // Scroll down and capture the screenshot
+      await _scrollToBottom();
+    }
+
+    // After capturing all screenshots, enable the button again
     setState(() {
-      hasBottomReached = result == true;
+      buttonDisable = false;
     });
-    print('Reached the bottom: $hasBottomReached');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content:
+              Text('Reached bottom of the content. All screenshots captured.')),
+    );
+
+    convertImageToPdf();
   }
 
-  void _scrollToBottom() async {
-//document.body.scrollHeight//bottom of screen
+  Future<void> _scrollToBottom() async {
+    int durationInMs = 500;
+   /* String jsScrollDown = """(function() {
+      var viewportHeight = window.innerHeight;
+      var scrollPosition = window.scrollY;
+      window.scrollTo(0, scrollPosition + viewportHeight);
+      return (window.innerHeight + window.scrollY) >= document.body.scrollHeight;
+    })();""";*/
+    String jsScrollDown =  """
+    (function() {
+      var viewportHeight = window.innerHeight;
+      var scrollPosition = window.scrollY;
+      var targetPosition = scrollPosition + viewportHeight;
+      var startTime = null;
 
-    String jsScrollDown = """(function() {
-        var viewportHeight = window.innerHeight;
-        var scrollPosition = window.scrollY;
-        window.scrollTo(0, scrollPosition + viewportHeight);
-        return (window.innerHeight + window.scrollY) >= document.body.offsetHeight;
-      })();""";
-    _checkIfScrolledToBottom();
-    await _controller.runJavaScriptReturningResult(jsScrollDown);
+      function scrollStep(timestamp) {
+        if (startTime === null) startTime = timestamp;
+        var progress = timestamp - startTime;
+        var proportion = Math.min(progress / $durationInMs, 1);
 
+        window.scrollTo(0, scrollPosition + proportion * (targetPosition - scrollPosition));
+
+        if (proportion < 1) {
+          window.requestAnimationFrame(scrollStep);
+        }
+      }
+
+      window.requestAnimationFrame(scrollStep);
+
+      return (window.innerHeight + window.scrollY) >= document.body.scrollHeight;
+    })();""";
+
+    // Execute JavaScript to scroll down and check if the bottom is reached
+    Object result =
+        await _controller.runJavaScriptReturningResult(jsScrollDown);
+
+    // The result will be "true" or "false", convert to boolean
+    hasBottomReached = result == true;
+
+    // Capture the screenshot if the bottom is not reached
     if (!hasBottomReached) {
       Uint8List? imageBytes = await screenshotController.capture();
       if (imageBytes != null) {
         final box = await openImagesBox();
-
         box.add(imageBytes);
       }
-    } else {
-      buttonDisable = true;
-      setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Reached bottom of the content. now capture pdf')));
-      print('Reached bottom of the content.');
     }
   }
 
   Future<Box<Uint8List>> openImagesBox() async {
     return await Hive.openBox<Uint8List>('imagesBox');
   }
+
 }

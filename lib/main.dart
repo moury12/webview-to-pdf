@@ -1,15 +1,10 @@
-import 'dart:io';
-import 'dart:typed_data';
-
-import 'package:flutter/cupertino.dart';
-import 'package:pdf/widgets.dart' as pw;
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter/material.dart';
-import 'package:screenshot/screenshot.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_to_pdf/web_to_pdf.dart';
-
-void main() {
+const String imageBox ='imageBox';
+void main() async{
   WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
 
   runApp(const MyApp());
 }

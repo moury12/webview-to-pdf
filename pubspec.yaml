@@ -38,7 +38,7 @@ dependencies:
   screenshot: ^3.0.0
   webview_flutter: ^4.8.0
   pdf: ^3.11.0
-  scroll_screenshot: ^0.0.4
+
 
 
 
